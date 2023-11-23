@@ -1,0 +1,343 @@
+<!-- Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license. -->
+<!-- See LICENSE in the project root for license information -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>skype web sdk simple sample for SfB online</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="app.css"><!--layout file-->
+  <script src="./config.js"></script> <!-- setting file-->
+  <script src="https://swx.cdn.skype.com/shared/v/1.2.15/SkypeBootstrap.min.js"></script><!--Skype Web SDK-->
+</head>
+<body>
+  <button id="AdminConsent">Admin Consent</button>
+  <button id="btnLog">Sign-in O365</button>
+  <button id="initSkypeUI">Initialize SkypeUI</button>
+  <button id="loginSkype">Sign-in Skype</button>
+  <button id="startChat">Start Chat</button>
+  <button id="getStatusMessage">Get Status Message</button>
+  <div id="SdKStatus"></div>
+  <div id="SigninStatus"></div>
+  <div id="conversationWindow"></div>
+  <div id="val01"></div>
+  <div id="val02"></div>
+  <div id="Temp01"></div>
+  <div id="Temp02"></div>
+  <div id="StatusMessage"></div>
+  
+  <script type="text/javascript">
+    var apiManager = null;
+    var client = null;
+
+    (function () {
+      //Retrieves access token from URL fragment
+      if(location.hash) {
+        var hasharr = location.hash.substr(1).split("&");
+        hasharr.forEach(function(hashelem) {
+          var elemarr = hashelem.split("=");
+          if(elemarr[0] == "access_token") {
+            console.log('Access Token: '+ elemarr[1]);
+          }
+        }, this);
+      }
+      
+      /*
+      Sign-in to Office 365 with Azure Active Directory
+      The document below describe authentication
+      https://msdn.microsoft.com/en-us/skype/websdk/developwebsdkappsforsfbonline#authenticate-a-user-with-office-365-online
+      */
+      document.getElementById('btnLog').onclick = function() {
+		    location.assign(
+          config.loginurl+
+          '&client_id='+config.clientid+
+          '&resource='+config.resource+
+          '&redirect_uri='+ config.replyurl
+          );
+      };
+      
+      /*
+      Grant app with Admin Consent
+      You can see more information in the document below
+      https://msdn.microsoft.com/en-us/skype/websdk/developwebsdkappsforsfbonline#tenant-administrator-consent-flow
+      */
+      document.getElementById('AdminConsent').onclick= function adminConsent(){
+        location.assign('https://login.microsoftonline.com/common/oauth2/authorize?response_type=id_token'+
+          '&client_id='+config.clientid+
+          '&redirect_uri='+config.replyurl+
+          //'&response_mode=form_post'+ //Because it is static web page and cant' handle post method, I comment out it.
+          '&nonce=samplestring'+// You can add code to defend Replay Attack with nonce property
+          '&resource='+config.resource+
+          '&prompt=admin_consent'
+        );
+      };
+           
+      /*
+      Initializing Skype Web SDK & Conversation Control.
+      You can learn more with the document below
+      https://msdn.microsoft.com/en-us/skype/websdk/useconversationcontrol#initialize-the-skype-web-sdk-api-endpoint
+      */
+      document.getElementById('initSkypeUI').onclick = function initSkypeUI(){
+          Skype.initialize({apiKey:config.apiKeyCC},function(api){
+              
+              //////// ここから追記 ////////
+              var temp1 = api.UIApplicationInstance;
+              var temp2 = api.UIApplicationInstance.personsAndGroupsManager.mePerson;
+              var temp3 = api.UIApplicationInstance.personsAndGroupsManager.mePerson.note.text()
+              console.log(temp1);
+              console.log(temp2);
+              console.log(temp3);
+              //////// ここまで追記 ////////
+
+              apiManager = api;
+              client = apiManager.UIApplicationInstance;
+              document.getElementById('SdKStatus').innerHTML = 'Skype Web SDK & Conversation Control Initialize success!';
+
+              //Event handler: whenever app state changes, display its value
+              client.signInManager.state.changed(function (state) {
+                console.log(state);
+              });
+
+              //Event handler : it is handled when conversations added. ie. incoming call, outgoing call
+              client.conversationsManager.conversations.added(function(conversation){
+             
+                //Event handler : Get notified when conversation control receives an incoming call
+                conversation.selfParticipant.audio.state.changed(function (newValue, reason, oldValue) {
+                  // 'Notified' indicates that there is an incoming call
+                  if(newValue === 'Notified') {
+                    var sip = conversation.participants(0).person.id();
+
+                    if (confirm("Would you like to accept this incoming call?")) {
+                        setTimeout(function() {
+                            var container = document.getElementById(sip);
+                            if(!container){
+                              container = document.createElement('div');
+                              container.id = sip;
+                              document.getElementById("conversationWindow").appendChild(container);
+
+                              //render conversation controll
+                              var promise = apiManager.renderConversation(container,{
+                                //Start outgoing call with chat and audio
+                                modalities:['Chat','Audio'],
+                                participants : [sip]
+                              }).then(function(conversation){
+                                console.log('Conversation rendered successfully');
+                              });
+                            }
+                            // This accepts an incoming call with audio
+                            conversation.audioService.accept();
+                            // To accept an incoming call with video enabled call
+                            // conversation.videoService.accept()
+                        }, 0);
+                    } else {
+                        // Reject the incoming call
+                        conversation.audioService.reject();
+                    }
+                  }
+                });            
+              });
+          }, function(err){
+            console.log(err); 
+          });
+      };     
+      
+      /*
+      Sign-in Skype
+      You can learn more from the link below
+      https://msdn.microsoft.com/en-us/skype/websdk/developwebsdkappsforsfbonline#support-for-oauth2-in-internet-explorer
+      */
+      document.getElementById('loginSkype').onclick=function loginSkype(){
+        var params =
+        {
+         "client_id": config.clientid,
+         "origins": ["https://webdir.online.lync.com/autodiscover/autodiscoverservice.svc/root"],
+         "cors": true,
+         "version": config.appName+'/1.0.0',
+         "redirect_uri": "/index.html"
+        };
+        
+        client.signInManager.signIn(params).then(function(){
+          document.getElementById('SigninStatus').innerHTML = 'Signed in as ' + client.personsAndGroupsManager.mePerson.displayName();
+        },function(error){
+          console.log(error);
+        });        
+      };
+      
+      
+      /*
+      Render conversation control on outgoing call
+      You can get more information with the reference below.
+      https://msdn.microsoft.com/en-us/skype/websdk/useconversationcontrol#render-conversation-control-on-outgoing-call
+      */
+      document.getElementById('startChat').onclick=function(){
+        //show prompt in the browser
+        var input = prompt('SIP URIs of the participants:','sip:example@example.com,sip:example2@example.com');
+
+        if(!input)
+          return;
+        var uris = input.split(',').map(function(s){return s.trim();});
+        console.log('participants:',uris);
+        
+        var container = document.getElementById(input);
+        if(!container){
+          container = document.createElement('div');
+          container.id = input;
+          document.getElementById("conversationWindow").appendChild(container);
+        }
+        //render Conversation Control in a web page.
+        var promise = apiManager.renderConversation(container,{
+          //Start outgoing call with chat window
+          modalities:['Chat'],
+          participants: uris
+        });
+      };      
+      
+      
+
+
+
+      /////////////// ここから自分で作成 ///////////////
+     
+      function GetMePerson (){
+        var sample = apiManager.UIApplicationInstance;
+        console.log("sample" + sample);
+
+        var me = apiManager.UIApplicationInstance.personsAndGroupsManager.mePerson;
+        console.log("client.personsAndGroupsManager.mePerson: " + me);
+        return me;
+      }
+
+
+      function GetSkypeInfoMe (person){
+
+        // note.text() 関数の利用
+        var val01 = person.note.text();
+        console.log("val01: " + val01);
+        document.getElementById('val01').innerHTML = 'Status message ' + val01;
+
+        // メソッドチェーン利用
+        person.note.text.get().then(function (val02){
+          console.log("val02: " + val02);
+          document.getElementById('val02').innerHTML = 'Status message ' + val02;
+        });
+      }
+
+
+       document.getElementById('getStatusMessage').onclick=function(){ 
+        // adminConsent;
+        // initSkypeUI;
+        // loginSkype;
+
+
+        // console.log("------------------------");
+        // var tempMessage = "testtesttesttest"
+        // // console.log(tempMessage);
+
+        // var me = client.personsAndGroupsManager.mePerson;
+        // console.log(me);
+        // console.log("------------------------");
+        
+        // var menote = me.note;
+        // console.log("me.note\n" + menote);
+        // console.log("------------------------");
+
+
+        // var menotetext  = menote.text(this.value);
+        // console.log("me.note.text\n" + menotetext);
+        // console.log("------------------------");
+
+        // var menotetext2 = menotetext["text"];
+        // console.log("me.note.text['text']\n" + menotetext2);
+        // console.log("------------------------");
+        // 
+        
+
+        var test = GetMePerson();
+        GetSkypeInfoMe(test);
+
+
+        // // note.text() 関数の利用
+        // var val01 = client.personsAndGroupsManager.mePerson.note.text();
+        // console.log("val01: " + val01);
+
+        // // メソッドチェーン利用
+        // client.personsAndGroupsManager.mePerson.note.text.get().then(function (val02){
+        //   console.log("val02: " + val02);
+        // });
+
+
+
+        // これの記載はメソッドチェーンでは不可。↑ のように .get() で記載しないといけない
+        // client.personsAndGroupsManager.mePerson.note.text.then(function (val02){
+        //   console.log("val02\n" + val);
+        //   document.getElementById('Temp02').innerHTML = 'メソッドチェーン (Temp02): ' + val02;
+        // });
+        
+        // console.log("------------------------");
+
+
+        // client.personsAndGroupsManager.mePerson.note.text.get().then(function (val01){
+        //   console.log("val01: " + val01);
+        //   document.getElementById('val01').innerHTML = 'メソッドチェーン利用 (val01): ' + val01;
+        // });
+
+        // // note.text() 関数の利用
+        // var val02 = client.personsAndGroupsManager.mePerson.note.text();
+        // console.log("val02: " + val02);
+        // document.getElementById('val02').innerHTML = 'note.text() 関数の利用 (val02): ' + val02;
+
+
+        // 成功パターン
+        // var statusmessage = client.personsAndGroupsManager.mePerson.note.text();
+        // console.log("statusmessage\n" + statusmessage);
+        // console.log("------------------------");
+        // document.getElementById('StatusMessage').innerHTML = 'mePerson.note.text (StatusMessage): ' + statusmessage;
+
+
+
+
+
+
+
+
+
+
+        // var mepe = client.personsAndGroupsManager.mePerson;
+        // // mepe.note.text(tempMessage);
+        // console.log("statusmessage2\n" + mepe);
+        // console.log("------------------------");
+        // document.getElementById('Sample02').innerHTML = 'mePerson (Sample02): ' + mepe;
+
+
+
+
+        // var himiyoshtest = me.note.text["text"].get().toString();
+        // console.log("himiyoshtest" + himiyoshtest);
+
+        // var menotetext2 = menotetext.text(this.value);
+
+        // console.log(menotetext2);
+        
+        
+
+        
+
+        // client.personsAndGroupsManager.mePerson.note.text.set(tempMessage).then(function(){
+        //     var me = client.personsAndGroupsManager.mePerson;
+        //     var menote = me.note.text.get();
+        //     document.getElementById('StatusMessage').innerHTML = 'Status message ' + menote;
+        // })
+        
+        
+        // var me = client.personsAndGroupsManager.mePerson
+        
+        // client.signInManager.signIn(params).then(function(){
+        //   document.getElementById('StatusMessage').innerHTML = 'Status message ' + client.personsAndGroupsManager.mePerson.note.text.get();
+        // },function(error){
+        //   console.log(error);
+        // });        
+      };
+    }());
+  </script>
+</body>
